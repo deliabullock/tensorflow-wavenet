@@ -11,8 +11,8 @@ import pickle
 ### pass line to get_global_category_ids
 ### pass to save_as_wav
 
-gc_id_utter_num = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0, 12: 0, 13: 0, 14: 0, 15: 0, 16: 0, 17: 0, 18: 0, 19: 0, 20: 0, 21: 0} 
-GC_NAME_to_GC_ID = = pickle.load(open('groups_dict.pkl'))
+gc_id_utter_num = pickle.load(open('gc_id_utter_num.pkl')) 
+GC_NAME_to_GC_ID = pickle.load(open('groups_dict.pkl'))
 
 curr_file = sys.argv[1]
 print(sys.argv[1])
@@ -31,10 +31,14 @@ def get_gc_filenames(description_list):
 
 def get_gc_ids(description_list):
 	gc_ids_out = []
-	indices = [i for i, x in enumerate(description_list) if x == 1]	
+	#print(description_list)
+	indices = [i for i, x in enumerate(description_list) if x == '1']	
+	#print(indices)
 	gc_ids_seen = set([])
 	for ind in indices:
 		gc_name = INDICES_to_GC_NAME[ind]
+		if gc_name not in GC_NAME_to_GC_ID:
+			continue
 		gc_id = GC_NAME_to_GC_ID[gc_name]
 		if gc_id not in gc_ids_seen:
 			gc_ids_out.append(gc_id)
@@ -60,8 +64,8 @@ with open(csv_filename, 'rb') as csvfile:
 			print(path)
 		filenames = get_gc_filenames(row[1:-1])
 		save_as_wavs(path, filenames)
-		print(i)
 print(gc_id_utter_num)
+pickle.dump(gc_id_utter_num, open('gc_id_utter_num.pkl', 'wb'))
 
 '''
 i = 0
