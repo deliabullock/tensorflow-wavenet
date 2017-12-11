@@ -11,6 +11,8 @@ import numpy as np
 import tensorflow as tf
 
 from wavenet import WaveNetModel, mu_law_decode, mu_law_encode, audio_reader
+from pydub import AudioSegment
+
 
 SAMPLES = 16000
 TEMPERATURE = 1.0
@@ -132,7 +134,7 @@ def create_seed(filename,
     return quantized[:cut_index]
 
 #main(song[last_mark:next_mark], new_song_path, 8000)
-def main(seeded_song, out_path, length):
+def main(seeded_song, out_path, length, full_song=False):
     args = get_arguments()
     to_set = [['wav_seed', seeded_song], ['wav_out_path', out_path], ['samples', length], ['checkpoint', 'logdir/train/2017-11-30T19-05-22/model.ckpt-99950']]
     for x in to_set:
@@ -156,8 +158,29 @@ def main(seeded_song, out_path, length):
         initial_filter_width=wavenet_params['initial_filter_width'],
         global_condition_channels=args.gc_channels,
         global_condition_cardinality=args.gc_cardinality)
-        
-    for i in range(3):
+
+
+#For transform song
+    second_unit = 1000.0
+    seeds = []
+    waveform_total = None#[quantization_channels / 2] * (net.receptive_field - 1)
+    seed_song_path = 'transform/chopped_seed.wav'
+
+    if full_song == True:
+	song = AudioSegment.from_file(args.wav_seed, format="wav")
+	leng = len(song)
+        last_mark = 0#1.5*second_unit
+	while last_mark < leng - net.receptive_field: #500:
+	    next_mark = min(leng, last_mark + net.receptive_field)
+	    seeds.append(song[last_mark:next_mark])
+	    last_mark += 2
+        	
+    num_times = 1	
+    if full_song == True:
+	print(len(seeds))
+	num_times = len(seeds)//2    
+
+    for i in range(num_times):
         sess = tf.Session()
  
         samples = tf.placeholder(tf.int32)
@@ -183,11 +206,19 @@ def main(seeded_song, out_path, length):
  
         quantization_channels = wavenet_params['quantization_channels']
         if args.wav_seed:
-            seed = create_seed(args.wav_seed,
+   	    seed_of_wav = args.wav_seed
+	    if full_song:
+		seeds[i].export(seed_song_path, format="wav")
+		seed_of_wave = seed_song_path
+
+            seed = create_seed(seed_of_wave,
                                wavenet_params['sample_rate'],
                                quantization_channels,
                                net.receptive_field)
             waveform = sess.run(seed).tolist()
+	    if full_song and i == 0:
+                waveform_total = [quantization_channels / 2] * (net.receptive_field)
+
         else:
             # Silence with a single random sample at the end.
             waveform = [quantization_channels / 2] * (net.receptive_field - 1)
@@ -245,6 +276,7 @@ def main(seeded_song, out_path, length):
             sample = np.random.choice(
                 np.arange(quantization_channels), p=scaled_prediction)
             waveform.append(sample)
+            waveform_total.append(sample)
  
             # Show progress only once per second.
             current_sample_timestamp = datetime.now()
@@ -274,8 +306,14 @@ def main(seeded_song, out_path, length):
 
     # Save the result as a wav file.
     if args.wav_out_path:
-        out = sess.run(decode, feed_dict={samples: waveform})
-        write_wav(out, wavenet_params['sample_rate'], args.wav_out_path)
+        if not full_song:
+	    out = sess.run(decode, feed_dict={samples: waveform})
+        
+	    write_wav(out, wavenet_params['sample_rate'], args.wav_out_path)
+	else:
+	    out = sess.run(decode, feed_dict={samples: waveform_total})
+        
+            write_wav(out, wavenet_params['sample_rate'], args.wav_out_path)	
 
     print('Finished generating. The result can be viewed in TensorBoard.')
 
