@@ -136,9 +136,6 @@ def create_guide(filename,
                 silence_threshold=SILENCE_THRESHOLD):
     audio, _ = librosa.load(filename, sr=sample_rate, mono=True)
     audio = audio_reader.trim_silence(audio, silence_threshold)
-    print('Silence thresh:')
-    print(silence_threshold)
-
     quantized = mu_law_encode(audio, quantization_channels)
     return quantized
 
@@ -221,58 +218,62 @@ def main():
 
     last_sample_timestamp = datetime.now()
     window_left = 0
-    while(window_left+net.receptive_field < 80000):#len(waveform)):
+    while(window_left+net.receptive_field < 160000):#len(waveform)):
         if args.fast_generation:
             outputs = [next_sample]
             outputs.extend(net.push_ops)
             window = waveform[-1]
         else:
-            if len(waveform) > net.receptive_field:
-                window = waveform[window_left : window_left+net.receptive_field]
+            window_guide = waveform[window_left : window_left+net.receptive_field]
+            if len(waveform_generated) > net.receptive_field:
+                window = waveform_generated[-net.receptive_field:]
             else:
                 window = waveform
             outputs = [next_sample]
-	for x in range(3):
 
-        	# Run the WaveNet to predict the next sample.
-                prediction = sess.run(outputs, feed_dict={samples: window})[0]
- 
-                # Scale prediction distribution using temperature.
-                np.seterr(divide='ignore')
-                scaled_prediction = np.log(prediction) / args.temperature
-                scaled_prediction = (scaled_prediction -
-                                     np.logaddexp.reduce(scaled_prediction))
-                scaled_prediction = np.exp(scaled_prediction)
-                np.seterr(divide='warn')
- 
-                # Prediction distribution at temperature=1.0 should be unchanged after
-                # scaling.
-                if args.temperature == 1.0:
-                    np.testing.assert_allclose(
-                            prediction, scaled_prediction, atol=1e-5,
-                            err_msg='Prediction scaling at temperature=1.0 '
-                                    'is not working as intended.')
- 
-                sample = np.random.choice(
-                    np.arange(quantization_channels), p=scaled_prediction)
-                waveform_generated.append(sample)
- 
-                # Show progress only once per second.
-                current_sample_timestamp = datetime.now()
-                time_since_print = current_sample_timestamp - last_sample_timestamp
-                if time_since_print.total_seconds() > 1.:
-                    print('Sample {:3<d}/{:3<d}'.format(window_left, len(waveform) - net.receptive_field),
-                          end='\r')
-                    last_sample_timestamp = current_sample_timestamp
- 
-                # If we have partial writing, save the result so far.
-                if (args.wav_out_path and args.save_every and
-                        (window_left + 1) % args.save_every == 0):
-                    out = sess.run(decode, feed_dict={samples: waveform})
-                    write_wav(out, wavenet_params['sample_rate'], args.wav_out_path)
-		window = window[1:]
-		window.append(sample)
-	window_left += 3
+        # Run the WaveNet to predict the next sample.
+        prediction_guide = sess.run(outputs, feed_dict={samples: window_guide})[0]
+        prediction_generated = sess.run(outputs, feed_dict={samples: window})[0]
+	predictions = [prediction_guide, prediction_generated]
+
+        # Scale prediction distribution using temperature.
+        np.seterr(divide='ignore')
+	for i, prediction in enumerate(predictions):
+        	scaled_prediction = np.log(prediction) / args.temperature
+        	scaled_prediction = (scaled_prediction -
+                	             np.logaddexp.reduce(scaled_prediction))
+        	scaled_prediction = np.exp(scaled_prediction)
+        	np.seterr(divide='warn')
+
+	
+
+        	# Prediction distribution at temperature=1.0 should be unchanged after
+        	# scaling.
+        	if args.temperature == 1.0:
+            		np.testing.assert_allclose(
+                    		prediction, scaled_prediction, atol=1e-5,
+                    	err_msg='Prediction scaling at temperature=1.0 '
+                            	'is not working as intended.')
+
+	scaled_prediction = np.add(predictions[0], predictions[1])/2
+        sample = np.random.choice(
+            np.arange(quantization_channels), p=scaled_prediction)
+        waveform_generated.append(sample)
+
+        # Show progress only once per second.
+        current_sample_timestamp = datetime.now()
+        time_since_print = current_sample_timestamp - last_sample_timestamp
+        if time_since_print.total_seconds() > 1.:
+            print('Sample {:3<d}/{:3<d}'.format(window_left, len(waveform) - net.receptive_field),
+                  end='\r')
+            last_sample_timestamp = current_sample_timestamp
+
+        # If we have partial writing, save the result so far.
+        if (args.wav_out_path and args.save_every and
+                (window_left + 1) % args.save_every == 0):
+            out = sess.run(decode, feed_dict={samples: waveform})
+            write_wav(out, wavenet_params['sample_rate'], args.wav_out_path)
+	window_left += 1
 
     # Introduce a newline to clear the carriage return from the progress.
     print()
