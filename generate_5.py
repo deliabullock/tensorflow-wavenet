@@ -95,6 +95,11 @@ def get_arguments():
         type=int,
         default=None,
         help='ID of category to generate, if globally conditioned.')
+    parser.add_argument(
+        '--gc_id_2',
+        type=int,
+        default=None,
+        help='ID of category to generate in combination with gc_id.')
     arguments = parser.parse_args()
     if arguments.gc_channels is not None:
         if arguments.gc_cardinality is None:
